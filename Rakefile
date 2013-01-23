@@ -595,7 +595,7 @@ class RIcons
     
 
 
-    # Let's edit some images now
+    # Let's edit some icons now
     processedimages = ImageProcessor.process files
 
     # Merge our processed images
@@ -707,10 +707,10 @@ class RIcon < Pathname
     self
   end
 
+  # Marks this icon to be rotated, updates the aliases with rotate identifier, and changes its name.
   def rotate(degrees)
     @degrees = degrees
       
-      id = ""
     #more friendly aliases (instead of just 90, 180 and 270)
     if degrees == 90 
       id = "2"
@@ -730,6 +730,7 @@ class RIcon < Pathname
     appendtoname(degrees.to_s)
   end
 
+  # Marks this icon to be mirrored, updates the aliases with mirror identifier, and changes its name.
   def mirror
     @mirrored = true
     @aliases.map! do |a|
@@ -747,6 +748,7 @@ class RIcon < Pathname
   end
   private :appendtoname
 
+  # Clones this object and initializes it
   def clone
     cloned = RIcon.new(@file)
     cloned.init
@@ -788,7 +790,8 @@ class ImageProcessor
   # The allowed operations, you can change the pre-extension here
   IMG_PROCESSING = { :rotate => ".rotate", :mirror => ".mirror" }
 
-  # Processes an array of files, checking which ones have the pre-extension that indicates a process operation
+  # Processes an array of files, checking which ones have the pre-extension that indicates a process operation.
+  # The icon will then be cloned and updated accordingly. This will not white any file to disk.
   def self.process(files)
     processedimages = []
     files.each do |f|
@@ -815,19 +818,20 @@ class ImageProcessor
     processedimages
   end
 
-  # Rotate a file and store it
+  # Rotate a file and store it folder.
   def self.processrotate(folder, f)
     image = (Magick::Image.read(f.to_s)).first
     image.rotate(f.degrees).write("build/#{folder}/#{f.cleanpath}")
   end
 
-  # Mirror a file and store it
+  # Mirror a file and store it in folder
   def self.processmirror(folder, f)
     image = (Magick::Image.read(f.to_s)).first
     image.flop.write("build/#{folder}/#{f.cleanpath}") 
   end
 
   # Remove process information from a filename
+  # Use this to remove the process information from the files.
   def self.slice(name)
     name.slice! IMG_PROCESSING[:mirror]
     name.slice! IMG_PROCESSING[:rotate]
