@@ -4,6 +4,11 @@ require 'pry' if ENV["DEBUG"]
 
 PACKAGEMAKER_PATH = '/Applications/Xcode.app/Contents/Applications/PackageMaker.app/Contents/MacOS/PackageMaker'
 
+# Ammount of each rotation, to be applied 3 times, summing up 90, 180 and 270 degrees.
+ROTATE_CLOCKWISE = 90
+# The allowed operations, you can change the pre-extension here
+IMG_PROCESSING = { :rotate => ".rotate", :mirror => ".mirror" }
+
 task :default => [:all]
 
 desc "Does rake -T"
@@ -37,6 +42,18 @@ namespace :install do
     sh "cp -R ./build/trollicons.colloquyEmoticons ~/Library/Application\\ Support/Colloquy/Emoticons/"
     puts "Restart Colloquy".red
   end
+end
+
+desc "Copies to adium build to dropbox"
+task :dropadium do
+  sh "cp -R build/trollicons.AdiumEmoticonset ~/Dropbox/IST/"
+     puts "AdiumEmoticonset copied to dropbox.".red
+end
+
+desc "Copies to pidgin build to dropbox"
+task :droppidgin do
+  sh "cp -R build/trollicons-pidgin ~/Dropbox/IST/"
+     puts "PidginEmoticonset copied to dropbox.".red
 end
 
 namespace :build do
@@ -362,7 +379,7 @@ namespace :build do
   
     b.prefs{
       b.control :name => "emoticons", :type => "emoticons" do
-  		    
+          
         ri.each_category do |cat|
           
           b.group :text => "#{cat.name};".to_sym, :initial => 0 do
@@ -382,10 +399,10 @@ namespace :build do
              
       
         # Some required stuff
-      	b << "&Emoticon-Extensions;\n"
-      	b << "&iniMenuItemColor;\n"
-      	b << "&iniIconMenuItemSettings;\n"
-      	b.font :name => "selection", :source => 'ttfDefault', :type => '&iniDefaultFontName;'.to_sym, :size => '&iniDefaultFontSize;'.to_sym
+        b << "&Emoticon-Extensions;\n"
+        b << "&iniMenuItemColor;\n"
+        b << "&iniIconMenuItemSettings;\n"
+        b.font :name => "selection", :source => 'ttfDefault', :type => '&iniDefaultFontName;'.to_sym, :size => '&iniDefaultFontSize;'.to_sym
       end
     }
   
@@ -408,7 +425,7 @@ namespace :build do
   task :extension do
     require "json"
     
-  	puts "\nBuilding Chrome extension".bold
+    puts "\nBuilding Chrome extension".bold
     next unless file_exists './extension/lib/trollicons.pem'
     
     # open extension/trollicons/manifest.json
@@ -422,21 +439,21 @@ namespace :build do
     manifestFile.write(JSON.pretty_generate(manifest))
     manifestFile.close()
 
-  	cmd = "cp -r Icons/ extension/trollicons/img"
-  	cmd += " && \"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome\" --pack-extension=extension/trollicons/ --pack-extension-key=extension/lib/trollicons.pem"
-  	system cmd
+    cmd = "cp -r Icons/ extension/trollicons/img"
+    cmd += " && \"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome\" --pack-extension=extension/trollicons/ --pack-extension-key=extension/lib/trollicons.pem"
+    system cmd
   
-	  puts "\nBuilding extension Zip file for upload to Chrome website".bold
-  	cmd = "cd extension/trollicons"
-  	cmd += "&& zip -r ../../build/trollicons-chrome.zip *"
-  	cmd += "&& cd -"
-  	system cmd
+    puts "\nBuilding extension Zip file for upload to Chrome website".bold
+    cmd = "cd extension/trollicons"
+    cmd += "&& zip -r ../../build/trollicons-chrome.zip *"
+    cmd += "&& cd -"
+    system cmd
 
-  	puts "\nCleaning up...".bold
-  	
-  	cmd = "mv extension/trollicons.crx build/"
-  	cmd += " && rm -rf extension/trollicons/img"
-  	system cmd
+    puts "\nCleaning up...".bold
+    
+    cmd = "mv extension/trollicons.crx build/"
+    cmd += " && rm -rf extension/trollicons/img"
+    system cmd
   end
   
   desc "Builds for Psi"
@@ -551,8 +568,8 @@ end
 
 class RIcons
   begin
-	  include Rake::DSL
-	rescue Exception
+    include Rake::DSL
+  rescue Exception
   end
   attr_accessor :files
   
@@ -570,9 +587,9 @@ class RIcons
     files = []
     Pathname.new(directory).children.each do |f|
       if f.directory? # WE NEED TO GO DEEPER
-        files = files | Pathname.new(f).children.select{|f| f.extname == '.png' }.map{|f| RIcon.new(f).init } # Merge arrays
+          files = files | Pathname.new(f).children.select{|f| f.extname == '.png' }.map{|f| RIcon.new(f).init } # Merge arrays 
       else
-        files << RIcon.new(f).init if f.extname == '.png'
+          files << RIcon.new(f).init if f.extname == '.png'
       end
     end
     unless files.count
@@ -581,6 +598,36 @@ class RIcons
     end
     puts "Processing #{files.count} files.".green
     
+
+
+    # Let's edit some images now
+    processedimages = [];
+
+    files.each do |f|
+      # We find the processing option, clone the object so we always keep the original, and apply the processing.
+      if f.basename.to_s.slice IMG_PROCESSING[:rotate]
+        tmpicon = f.clone
+        tmpicon.rotate(ROTATE_CLOCKWISE)
+        processedimages <<  tmpicon
+
+        tmpicon = f.clone
+        tmpicon.rotate(ROTATE_CLOCKWISE*2)
+        processedimages <<  tmpicon
+
+        tmpicon = f.clone
+        tmpicon.rotate(ROTATE_CLOCKWISE*3)
+        processedimages <<  tmpicon
+      end
+      if f.basename.to_s.slice IMG_PROCESSING[:mirror]
+        tmpicon = f.clone
+        tmpicon.mirror
+        processedimages << tmpicon
+      end
+    end
+
+    # Merge our processed images
+    files = files.concat(processedimages)
+
     # Process the Trollicons version file
     v = files.index(Pathname.new("Icons/Trollicons-trollicons.png"))
     files[v].name = " Trollicons (#{files.count} icons) (build date: #{Time.now.month}-#{Time.now.day}-#{Time.now.year})"   
@@ -627,7 +674,20 @@ class RIcons
     rm_rf "build/#{folder}"
 
     mkdir_p "build/#{folder}"
-    files.each{|f| cp f.to_s, "build/#{folder}/#{f.cleanpath}"}
+
+    # Create our new processed files if needed, otherwise just copy it.
+    require 'rmagick'
+    files.each do |f|
+      if f.mirrored
+        image = (Magick::Image.read(f.to_s)).first
+        image.flop.write("build/#{folder}/#{f.cleanpath}")
+      elsif f.degrees
+        image = (Magick::Image.read(f.to_s)).first
+        image.rotate(f.degrees).write("build/#{folder}/#{f.cleanpath}")
+      else
+        cp f.to_s, "build/#{folder}/#{f.cleanpath}"
+      end
+    end
     
     puts "Moved #{files.count} files.".green
   end
@@ -649,17 +709,26 @@ class RCategory
 end
 
 class RIcon < Pathname
-  attr_accessor :file, :name, :aliases, :namespace, :cleanpath
+  attr_accessor :file, :name, :aliases, :namespace, :cleanpath, :degrees, :mirrored
+
   def initialize(pathname)
     super(pathname)
     @file = pathname
   end
   
   def init
-    @aliases = @file.basename.to_s.chomp(@file.extname).split("-")
+    @degrees = nil;
+    @mirrored = nil;
+
+    basename = @file.basename.to_s
+    # Remove process information from the basename
+    basename.slice! IMG_PROCESSING[:mirror]
+    basename.slice! IMG_PROCESSING[:rotate]
+
+    @aliases = basename.chomp(@file.extname).split("-")
     #extract the face name, now the rest will contain aliases
     @name = @aliases.shift
-    
+
     # correct for folders
     if @file.to_s =~ /^Icons\/(.*)\/(.*)$/
       @namespace = $1
@@ -668,7 +737,46 @@ class RIcon < Pathname
     elsif @file.to_s =~ /^Icons\/(.*)$/
       @cleanpath = @name.gsub(/\!|\?| |'|"/, '') + @file.extname
     end
+
     self
+  end
+
+  def rotate(degrees)
+    init
+    @degrees = degrees
+      
+    #more friendly aliases (instead of just 180, 270 etc)
+    if degrees == 90 
+      id = 2
+    elsif degrees == 180
+      id = 3
+    elsif degrees == 270
+      id = 4
+    else
+      id = degrees #What happened? Lets just use the degrees
+    end
+
+    @aliases.map! do |a|
+      #update the alias
+      a = a + id.to_s
+    end
+
+    # Update name and cleanpath.
+    @name = @name + " " + @degrees.to_s
+    @cleanpath = @name.gsub(/\!|\?| |'|"/, '') + @file.extname
+  end
+
+  def mirror
+    init
+    @mirrored = true
+    @aliases.map! do |a|
+      #update the alias
+      a = a + "m"
+    end
+
+    # Update name and cleanpath.
+    @name = @name + " Mirrored"
+    @cleanpath = @name.gsub(/\!|\?| |'|"/, '') + @file.extname
   end
     
   #def basename(*args) Pathname.new(File.basename(@path, *args)) end
@@ -696,4 +804,3 @@ def file_exists file
   end
   t
 end
-
