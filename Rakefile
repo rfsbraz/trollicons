@@ -4,11 +4,6 @@ require 'pry' if ENV["DEBUG"]
 
 PACKAGEMAKER_PATH = '/Applications/Xcode.app/Contents/Applications/PackageMaker.app/Contents/MacOS/PackageMaker'
 
-# Ammount of each rotation, to be applied 3 times, summing up 90, 180 and 270 degrees.
-ROTATE_CLOCKWISE = 90
-# The allowed operations, you can change the pre-extension here
-IMG_PROCESSING = { :rotate => ".rotate", :mirror => ".mirror" }
-
 task :default => [:all]
 
 desc "Does rake -T"
@@ -601,29 +596,7 @@ class RIcons
 
 
     # Let's edit some images now
-    processedimages = [];
-
-    files.each do |f|
-      # We find the processing option, clone the object so we always keep the original, and apply the processing.
-      if f.basename.to_s.slice IMG_PROCESSING[:rotate]
-        tmpicon = f.clone
-        tmpicon.rotate(ROTATE_CLOCKWISE)
-        processedimages <<  tmpicon
-
-        tmpicon = f.clone
-        tmpicon.rotate(ROTATE_CLOCKWISE*2)
-        processedimages <<  tmpicon
-
-        tmpicon = f.clone
-        tmpicon.rotate(ROTATE_CLOCKWISE*3)
-        processedimages <<  tmpicon
-      end
-      if f.basename.to_s.slice IMG_PROCESSING[:mirror]
-        tmpicon = f.clone
-        tmpicon.mirror
-        processedimages << tmpicon
-      end
-    end
+    processedimages = ImageProcessor.process files
 
     # Merge our processed images
     files = files.concat(processedimages)
@@ -660,8 +633,8 @@ class RIcons
         return
       end
     end
-    
-    # Check for alias collisions
+
+     # Check for alias collisions
     c = Hash.new(0)
     files.each do |f|
       f.aliases.each do |a|
@@ -676,14 +649,11 @@ class RIcons
     mkdir_p "build/#{folder}"
 
     # Create our new processed files if needed, otherwise just copy it.
-    require 'rmagick'
     files.each do |f|
       if f.mirrored
-        image = (Magick::Image.read(f.to_s)).first
-        image.flop.write("build/#{folder}/#{f.cleanpath}")
+        ImageProcessor.processmirror(folder, f)
       elsif f.degrees
-        image = (Magick::Image.read(f.to_s)).first
-        image.rotate(f.degrees).write("build/#{folder}/#{f.cleanpath}")
+        ImageProcessor.processrotate(folder, f)
       else
         cp f.to_s, "build/#{folder}/#{f.cleanpath}"
       end
@@ -717,13 +687,9 @@ class RIcon < Pathname
   end
   
   def init
-    @degrees = nil;
-    @mirrored = nil;
-
     basename = @file.basename.to_s
-    # Remove process information from the basename
-    basename.slice! IMG_PROCESSING[:mirror]
-    basename.slice! IMG_PROCESSING[:rotate]
+    
+    basename = ImageProcessor.slice(basename)
 
     @aliases = basename.chomp(@file.extname).split("-")
     #extract the face name, now the rest will contain aliases
@@ -742,41 +708,49 @@ class RIcon < Pathname
   end
 
   def rotate(degrees)
-    init
     @degrees = degrees
       
-    #more friendly aliases (instead of just 180, 270 etc)
+      id = ""
+    #more friendly aliases (instead of just 90, 180 and 270)
     if degrees == 90 
-      id = 2
+      id = "2"
     elsif degrees == 180
-      id = 3
+      id = "3"
     elsif degrees == 270
-      id = 4
+      id = "4"
     else
-      id = degrees #What happened? Lets just use the degrees
+      id = degrees.to_s #What happened? Lets just use the degrees
     end
 
     @aliases.map! do |a|
       #update the alias
-      a = a + id.to_s
+      a = a + id
     end
 
-    # Update name and cleanpath.
-    @name = @name + " " + @degrees.to_s
-    @cleanpath = @name.gsub(/\!|\?| |'|"/, '') + @file.extname
+    appendtoname(degrees.to_s)
   end
 
   def mirror
-    init
     @mirrored = true
     @aliases.map! do |a|
       #update the alias
       a = a + "m"
     end
+    appendtoname(" Mirrored")
+  end
 
+  # Appends a string to name, and updates cleanpath acordingly
+  def appendtoname(name)
     # Update name and cleanpath.
-    @name = @name + " Mirrored"
+    @name = @name + name
     @cleanpath = @name.gsub(/\!|\?| |'|"/, '') + @file.extname
+  end
+  private :appendtoname
+
+  def clone
+    cloned = RIcon.new(@file)
+    cloned.init
+    cloned
   end
     
   #def basename(*args) Pathname.new(File.basename(@path, *args)) end
@@ -803,4 +777,61 @@ def file_exists file
     puts "#{file} not found. Skipping...".red
   end
   t
+end
+
+class ImageProcessor
+  
+  require 'rmagick'
+
+   # Ammount of each rotation, to be applied 3 times, summing up 90, 180 and 270 degrees.
+  ROTATE_CLOCKWISE = 90
+  # The allowed operations, you can change the pre-extension here
+  IMG_PROCESSING = { :rotate => ".rotate", :mirror => ".mirror" }
+
+  # Processes an array of files, checking which ones have the pre-extension that indicates a process operation
+  def self.process(files)
+    processedimages = []
+    files.each do |f|
+      # We find the processing option, clone the object so we always keep the original, and apply the processing.
+      if f.basename.to_s.slice IMG_PROCESSING[:rotate]
+        tmpicon = f.clone
+        tmpicon.rotate(ROTATE_CLOCKWISE)
+        processedimages <<  tmpicon
+
+        tmpicon = f.clone
+        tmpicon.rotate(ROTATE_CLOCKWISE*2)
+        processedimages <<  tmpicon
+
+        tmpicon = f.clone
+        tmpicon.rotate(ROTATE_CLOCKWISE*3)
+        processedimages <<  tmpicon
+      end
+      if f.basename.to_s.slice IMG_PROCESSING[:mirror]
+        tmpicon = f.clone
+        tmpicon.mirror
+        processedimages << tmpicon
+      end
+    end
+    processedimages
+  end
+
+  # Rotate a file and store it
+  def self.processrotate(folder, f)
+    image = (Magick::Image.read(f.to_s)).first
+    image.rotate(f.degrees).write("build/#{folder}/#{f.cleanpath}")
+  end
+
+  # Mirror a file and store it
+  def self.processmirror(folder, f)
+    image = (Magick::Image.read(f.to_s)).first
+    image.flop.write("build/#{folder}/#{f.cleanpath}") 
+  end
+
+  # Remove process information from a filename
+  def self.slice(name)
+    name.slice! IMG_PROCESSING[:mirror]
+    name.slice! IMG_PROCESSING[:rotate]
+    name
+  end
+
 end
